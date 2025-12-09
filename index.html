@@ -4,20 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>MyCall — Видеозвонки как в FaceTime</title>
-
-  <!-- PWA -->
+  <!-- ... (Мета-теги и стили остаются прежними) ... -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0071e3">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22 fill=%22%230071e3%22>📞</text></svg>">
-
-  <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
-
-  <!-- Vue -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-
-  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
@@ -90,7 +83,7 @@
       </div>
     </div>
 
-    <!-- Setup (Включает логику для URL и создания/копирования ссылки) -->
+    <!-- Setup -->
     <div v-else-if="state === 'setup'" class="video-container">
       <div class="setup-card">
         <h2 class="logo text-center mb-3">MyCall</h2>
@@ -116,7 +109,7 @@
           <p v-if="!username.trim()" class="text-danger mt-2 small">Введите имя для продолжения.</p>
         </div>
 
-        <!-- Ссылка для создателя комнаты (появляется, если мы создаем новую комнату, но еще не перешли в 'waiting') -->
+        <!-- Ссылка для создателя комнаты -->
         <div v-if="roomLink && !roomFromUrl" class="mt-4">
           <p class="small text-muted mb-2">Скопируйте ссылку и отправьте собеседнику:</p>
           <div class="input-group">
@@ -205,7 +198,6 @@
   </div>
 
   <script>
-    // ПРИМЕНЕННЫЕ ПАРАМЕТРЫ FIREBASE
     const firebaseConfig = {
       apiKey: "AIzaSyDm0pktTEXSg2NYNKa5QYyFIaOmvUpcTlU",
       authDomain: "itoren-294cd.firebaseapp.com",
@@ -252,7 +244,6 @@
         let roomRef = null;
         let callerID = null; // ID отправителя Offer/Answer
 
-        // ПРИМЕНЕННЫЕ ICE SERVERS
         const iceServers = [
           { urls: "stun:stun.relay.metered.ca:80" },
           { urls: "turn:global.relay.metered.ca:80", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
@@ -333,10 +324,14 @@
           localStorage.setItem('mycall_username', username.value.trim());
 
           if (roomFromUrl.value) {
+            // Переход по ссылке: ищем комнату (Receiver)
             roomID.value = roomFromUrl.value;
             roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
             state.value = 'incoming';
+            roomRef = db.ref(`rooms/${roomID.value}`);
+            listenForSignaling(); // Начинаем слушать, чтобы поймать Offer
           } else {
+            // Создание новой комнаты (Caller)
             const id = generateRoomID();
             roomID.value = id;
             roomLink.value = `${window.location.origin}?room=${id}`;
@@ -344,10 +339,12 @@
             
             roomRef = db.ref(`rooms/${id}`);
             roomRef.child('hangup').on('value', handleRemoteHangup);
+            listenForSignaling(); // Начинаем слушать Answer
           }
           
-          if (roomID.value) {
-              listenForSignaling();
+          // Запускаем процесс создания Offer, если мы Caller
+          if (state.value === 'waiting') {
+              await createOfferInitiation();
           }
         }
         
@@ -363,40 +360,54 @@
             roomRef = db.ref(`rooms/${roomID.value}`);
             listenForSignaling();
         }
-
+        
+        // Инициализация звонка для Caller (создатель)
+        async function createOfferInitiation() {
+            if (state.value !== 'waiting' || !roomRef) return;
+            try {
+                await getMedia(); // Получаем медиа сразу, так как мы инициируем
+                createPeerConnection();
+                await createOffer(); // Создает Offer и отправляет в DB
+                listenForAnswer(); // Ждем ответа
+            } catch(e) {
+                hangup();
+            }
+        }
 
         async function acceptCall() {
+          if (state.value !== 'incoming' || !roomRef) return;
           try {
+            // 1. Получаем медиа
             await getMedia(); 
-            state.value = 'call';
+            // 2. Создаем PeerConnection
             createPeerConnection();
             
-            // 1. Получаем Offer из DB
+            // 3. Получаем Offer (он уже должен быть в DB, так как мы перешли в 'incoming')
             const offerSnapshot = await roomRef.child('offers').limitToFirst(1).get();
             const offerData = offerSnapshot.val() ? Object.values(offerSnapshot.val())[0] : null;
             
             if (!offerData || !offerData.sdp) {
-                alert("Ошибка: Не найден Offer от вызывающей стороны.");
+                alert("Ошибка: Не удалось найти Offer от вызывающей стороны.");
                 return hangup();
             }
             
             remoteUsername.value = offerData.username || 'Собеседник';
             callerID = offerSnapshot.key || Object.keys(offerSnapshot.val())[0]; 
             
-            // 2. Устанавливаем Offer
+            // 4. Устанавливаем Offer и создаем Answer
             await pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
             
-            // 3. Создаем и отправляем Answer
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             
+            // 5. Отправляем Answer
             await roomRef.child('answers').push({
                 sdp: pc.localDescription,
                 username: username.value.trim()
             });
-
-            // 4. Начинаем слушать ответы/кандидаты
-            listenForAnswer();
+            
+            // 6. Переходим в 'call' и слушаем ICE
+            state.value = 'call';
             listenForCandidates(); 
 
           } catch (e) {
@@ -405,26 +416,29 @@
           }
         }
         
-        // --- Логика сигналинга (Database Listeners) ---
+        // --- Сигналинг (Offer/Answer) ---
+        
+        async function createOffer() {
+            const offer = await pc.createOffer({ offerToReceiveVideo: 1, offerToReceiveAudio: 1 });
+            await pc.setLocalDescription(offer);
+            
+            // Отправляем Offer в комнату, используя временный ключ (позже он будет привязан к Answer)
+            const offerRef = await roomRef.child('offers').push({
+                sdp: pc.localDescription,
+                username: username.value.trim()
+            });
+            callerID = offerRef.key; // Запоминаем ключ для сопоставления с Answer
+        }
         
         function listenForSignaling() {
             if (!roomRef) return;
             
-            // Слушаем Offer (для Receiver)
-            roomRef.child('offers').on('child_added', (snapshot) => {
-                const offerData = snapshot.val();
-                
-                if (state.value === 'incoming' && offerData && offerData.sdp) {
-                    remoteUsername.value = offerData.username || 'Собеседник';
-                    callerID = snapshot.key;
-                }
-            });
-            
-            // Слушаем Answer (для Caller)
+            // Слушаем Answer (это нужно Caller'у)
             roomRef.child('answers').on('child_added', async (snapshot) => {
                 if (state.value === 'waiting' && pc && snapshot.val().sdp) {
                     const answerData = snapshot.val();
                     
+                    // Убеждаемся, что это ответ на наш Offer
                     if (snapshot.key === callerID) {
                         await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
                         state.value = 'call';
@@ -433,8 +447,18 @@
                 }
             });
             
-            // Слушаем ICE Candidates (для обеих сторон после установки SDP)
-            listenForCandidates();
+            // Слушаем Offer (это нужно Receiver'у, но Receiver инициирует acceptCall)
+            roomRef.child('offers').on('child_added', (snapshot) => {
+                const offerData = snapshot.val();
+                
+                if (state.value === 'incoming' && offerData && offerData.sdp) {
+                    // Если мы пришли сюда через URL, просто обновляем имя и ждем нажатия кнопки "Принять"
+                    remoteUsername.value = offerData.username || 'Собеседник';
+                    callerID = snapshot.key;
+                }
+            });
+            
+            listenForCandidates(); // Всегда слушаем кандидатов
         }
         
         function listenForCandidates() {
@@ -450,10 +474,6 @@
                 }
             });
         }
-        
-        function listenForAnswer() {
-            // Этот слушатель уже встроен в listenForSignaling, но оставим здесь для ясности
-        }
 
 
         function handleRemoteHangup(snapshot) {
@@ -466,17 +486,21 @@
         function declineCall() { hangup(); }
         
         function hangup() {
+          // Остановка медиа
           [localStream, screenStream, remoteStream].forEach(s => {
             if (s) s.getTracks().forEach(t => t.stop());
           });
+          // Закрытие PeerConnection
           if (pc) pc.close();
+          
           if (roomRef) {
             if (state.value === 'call' || state.value === 'waiting') {
                 roomRef.child('hangup').set(true); 
             }
-            roomRef.off();
+            roomRef.off(); // Отключаем все слушатели
           }
 
+          // Сброс
           pc = localStream = screenStream = remoteStream = roomRef = null;
           roomID.value = '';
           remoteUsername.value = '';
@@ -486,7 +510,7 @@
           state.value = 'setup';
         }
 
-        // --- UI Controls ---
+        // --- UI Controls (Toggle Mute/Video/Share) ---
 
         function toggleMute() {
           const track = localStream?.getAudioTracks()[0];
