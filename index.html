@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
   <title>MyCall — Видеозвонки как в FaceTime</title>
 
-  <!-- ✅ Настоящий manifest -->
+  <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
   <meta name="theme-color" content="#0071e3">
-  <link rel="apple-touch-icon" href="/icon-192.png">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📞</text></svg>">
 
   <!-- Bootstrap -->
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -22,31 +22,67 @@
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
   <style>
-    :root { --face-blue: #0071e3; }
-    * { box-sizing: border-box; }
+    :root {
+      --face-blue: #0071e3;
+    }
     body {
       background: linear-gradient(135deg, #e0e0e5, #d0d4db);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
       margin: 0; height: 100vh; overflow: hidden;
     }
     .video-container {
-      display: flex; flex-direction: column; justify-content: center;
-      align-items: center; width: 100%; height: 100vh;
+      position: relative; width: 100%; height: 100vh;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
     }
+    video {
+      border-radius: 20px; background: #000; object-fit: cover;
+      max-width: 90vw; max-height: 70vh;
+    }
+    #remoteVideo { width: 100%; height: 100%; border-radius: 24px; }
+    #localVideo {
+      position: absolute; bottom: 20px; right: 20px;
+      width: 180px; height: 135px; border: 3px solid white;
+      border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .controls {
+      position: absolute; bottom: 100px; display: flex; gap: 16px;
+    }
+    .btn-circle {
+      width: 64px; height: 64px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.3rem; box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    .btn-green { background: #30d158; color: white; }
+    .btn-red { background: #ff3b30; color: white; }
+    .btn-gray { background: #545458; color: white; }
+    .btn-orange { background: #ff9500; color: white; }
     .setup-card {
       background: white; border-radius: 24px; padding: 28px;
       box-shadow: 0 8px 24px rgba(0,0,0,0.1); max-width: 500px; width: 90%;
     }
-    .logo { font-size: 2.2rem; font-weight: 700; color: var(--face-blue); }
-    .btn-lg { border-radius: 18px; padding: 12px 24px; }
-    .room-link { color: var(--face-blue); text-decoration: underline; cursor: pointer; }
+    .logo {
+      font-size: 2.2rem; font-weight: 700;
+      background: linear-gradient(90deg, #0071e3, #5ac8fa);
+      -webkit-background-clip: text; background-clip: text; color: transparent;
+    }
   </style>
 </head>
 <body>
+
   <div id="app">
-    <div v-if="state === 'setup'" class="video-container">
+    <!-- Init -->
+    <div v-if="state === 'init'" class="video-container">
+      <div class="text-center">
+        <h2 class="logo mb-3">MyCall</h2>
+        <div class="spinner-border text-primary" role="status"></div>
+        <p class="mt-3 text-muted">Запуск…</p>
+      </div>
+    </div>
+
+    <!-- Setup -->
+    <div v-else-if="state === 'setup'" class="video-container">
       <div class="setup-card">
-        <h1 class="logo text-center mb-3">MyCall</h1>
+        <h2 class="logo text-center mb-3">MyCall</h2>
         <p class="text-center text-muted mb-4">Начните видеозвонок за секунды</p>
 
         <div class="mb-3">
@@ -56,25 +92,95 @@
 
         <button @click="createOrJoinRoom" :disabled="!username.trim()"
           class="btn btn-primary btn-lg w-100 mb-3">
-          Создать комнату
+          <i class="bi bi-plus-circle me-2"></i> Создать комнату
         </button>
 
-        <!-- ✅ Исправлено: roomFromUrl → просто roomFromUrl -->
-        <div v-if="roomFromUrl" class="mt-3 p-2 bg-light rounded">
+        <div v-if="roomFromUrl" class="mt-3 p-3 bg-light rounded-3">
           <p class="mb-1"><small>Подключение к комнате:</small></p>
           <p class="fw-bold text-primary">{{ roomFromUrl }}</p>
-          <button @click="joinRoom(roomFromUrl)" class="btn btn-success btn-sm">
-            Присоединиться
+          <button @click="joinRoom(roomFromUrl)" class="btn btn-success w-100">
+            <i class="bi bi-telephone-inbound me-2"></i> Присоединиться
+          </button>
+        </div>
+
+        <div v-if="roomLink" class="mt-4">
+          <p class="small text-muted mb-2">Скопируйте ссылку:</p>
+          <div class="input-group">
+            <input :value="roomLink" class="form-control" readonly>
+            <button class="btn btn-outline-primary" @click="copyLink">
+              <i class="bi bi-clipboard"></i>
+            </button>
+          </div>
+          <p v-if="copied" class="text-success mt-2 small">
+            <i class="bi bi-check-circle-fill me-1"></i> Скопировано!
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Waiting -->
+    <div v-else-if="state === 'waiting'" class="video-container">
+      <div class="status-bar bg-dark text-white px-3 py-2 rounded-pill">
+        <i class="bi bi-clock me-2"></i> Ожидание собеседника…
+      </div>
+      <h3 class="logo text-white mb-3">MyCall</h3>
+      <p class="text-white">Ваша комната: <span class="fw-bold">{{ roomID }}</span></p>
+      <button @click="hangup" class="btn btn-outline-light btn-sm mt-2">
+        <i class="bi bi-arrow-left"></i> Назад
+      </button>
+    </div>
+
+    <!-- Incoming -->
+    <div v-else-if="state === 'incoming'" class="video-container">
+      <div class="status-bar bg-warning text-dark px-3 py-2 rounded-pill">
+        <i class="bi bi-telephone-incoming me-2"></i> Входящий звонок
+      </div>
+      <div class="text-center text-white mt-4">
+        <h4 class="logo">{{ remoteUsername || 'Собеседник' }}</h4>
+        <p class="opacity-75">хочет начать видеозвонок</p>
+        <div class="mt-4 d-flex gap-3">
+          <button @click="declineCall" class="btn-circle btn-red">
+            <i class="bi bi-telephone-x"></i>
+          </button>
+          <button @click="acceptCall" class="btn-circle btn-green">
+            <i class="bi bi-telephone"></i>
           </button>
         </div>
       </div>
     </div>
 
-    <!-- Другие состояния (waiting, incoming, call) — по аналогии, без $route -->
-    <!-- Для краткости не дублирую, но они должны использовать roomFromUrl, а не $route -->
+    <!-- Call -->
+    <div v-else-if="state === 'call'" class="video-container">
+      <div class="status-bar bg-success text-white px-3 py-2 rounded-pill">
+        <i class="bi bi-circle-fill me-2"></i>
+        <span>{{ isScreenSharing ? 'Демонстрация экрана' : 'Собеседник в сети' }}</span>
+      </div>
+
+      <video id="remoteVideo" autoplay playsinline muted="false"></video>
+      <video id="localVideo" autoplay playsinline muted></video>
+
+      <div class="controls">
+        <button @click="toggleMute" class="btn-circle btn-gray"
+          :title="isMuted ? 'Включить микрофон' : 'Выключить'">
+          <i :class="isMuted ? 'bi bi-mic-mute' : 'bi bi-mic'"></i>
+        </button>
+        <button @click="toggleVideo" class="btn-circle btn-gray"
+          :title="isVideoOff ? 'Включить видео' : 'Выключить'">
+          <i :class="isVideoOff ? 'bi bi-camera-video-off' : 'bi bi-camera-video'"></i>
+        </button>
+        <button v-if="!isMobile" @click="toggleScreenShare" class="btn-circle btn-orange"
+          :title="isScreenSharing ? 'Остановить шаринг' : 'Поделиться экраном'">
+          <i class="bi bi-display"></i>
+        </button>
+        <button @click="hangup" class="btn-circle btn-red">
+          <i class="bi bi-telephone-x"></i>
+        </button>
+      </div>
+    </div>
   </div>
 
   <script>
+    // 🔑 Ваш Firebase (всё верно)
     const firebaseConfig = {
       apiKey: "AIzaSyDm0pktTEXSg2NYNKa5QYyFIaOmvUpcTlU",
       authDomain: "itoren-294cd.firebaseapp.com",
@@ -90,7 +196,7 @@
       firebase.initializeApp(firebaseConfig);
       db = firebase.database();
     } catch (e) {
-      console.error("Firebase init error:", e);
+      console.error('Firebase error:', e);
     }
   </script>
 
@@ -99,46 +205,320 @@
 
     createApp({
       setup() {
-        const state = ref('setup');
-        const username = ref('');
+        const state = ref('init');
+        const username = ref(localStorage.getItem('mycall_username') || '');
         const roomID = ref('');
-        const roomFromUrl = ref(new URLSearchParams(window.location.search).get('room'));
+        const remoteUsername = ref('');
+        const roomLink = ref('');
+        const copied = ref(false);
+        const isMuted = ref(false);
+        const isVideoOff = ref(false);
+        const isScreenSharing = ref(false);
+        const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
-        // ✅ Полностью убрано $route
+        // ✅ roomFromUrl — строка (не объект!)
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomFromUrl = ref(urlParams.get('room'));
 
-        function createOrJoinRoom() {
-          if (!username.value.trim()) return;
-          if (roomFromUrl.value) {
-            joinRoom(roomFromUrl.value);
-          } else {
-            const id = Math.random().toString(36).substring(2, 8).toUpperCase();
-            roomID.value = id;
-            // ... логика создания комнаты
-            alert('Комната: ' + id + '\n(В демо-режиме)');
+        let localStream = null;
+        let screenStream = null;
+        let remoteStream = null;
+        let pc = null;
+        let roomRef = null;
+        let callerID = null;
+
+        // 🔥 Ваши Metered ICE-серверы
+        const iceServers = [
+          { urls: "stun:stun.relay.metered.ca:80" },
+          { urls: "turn:global.relay.metered.ca:80", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turn:global.relay.metered.ca:443", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+        ];
+
+        // --- Utils ---
+        function generateRoomID() {
+          return Math.random().toString(36).substring(2, 8).toUpperCase();
+        }
+
+        async function getMedia() {
+          try {
+            localStream = await navigator.mediaDevices.getUserMedia({
+              video: { width: 1280, height: 720 },
+              audio: true
+            });
+            document.getElementById('localVideo').srcObject = localStream;
+          } catch (e) {
+            alert('Ошибка медиа: ' + (e.message || e.name));
+            state.value = 'setup';
+            throw e;
           }
         }
 
-        function joinRoom(id) {
-          alert('Присоединяемся к: ' + id);
-          // ... логика присоединения
+        function copyLink() {
+          if (!roomID.value) return;
+          const link = `${window.location.origin}${window.location.pathname}?room=${roomID.value}`;
+          navigator.clipboard.writeText(link).then(() => {
+            copied.value = true;
+            setTimeout(() => copied.value = false, 2000);
+          });
         }
 
+        // --- WebRTC ---
+        async function createPeerConnection() {
+          console.log('🌐 Создаём PeerConnection с Metered ICE...');
+          pc = new RTCPeerConnection({ iceServers });
+
+          // ICE-кандидаты
+          pc.onicecandidate = async (event) => {
+            if (event.candidate && roomRef) {
+              console.log('📤 ICE candidate:', event.candidate.candidate);
+              await roomRef.child('iceCandidates').push(event.candidate);
+            }
+          };
+
+          // Пришёл медиапоток
+          pc.ontrack = (event) => {
+            remoteStream = event.streams[0];
+            document.getElementById('remoteVideo').srcObject = remoteStream;
+          };
+
+          // Добавляем треки
+          localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+
+          // Состояние соединения
+          pc.onconnectionstatechange = () => {
+            console.log('🔌 Connection state:', pc.connectionState);
+            if (pc.connectionState === 'connected') {
+              // Проверяем, использовался ли TURN
+              pc.getStats().then(stats => {
+                let turnUsed = false;
+                stats.forEach(report => {
+                  if (report.type === 'local-candidate' && report.candidateType === 'relayed') {
+                    console.log('✅ Используется TURN:', report.url);
+                    turnUsed = true;
+                  }
+                });
+                if (!turnUsed) console.log('ℹ️ Прямое соединение (STUN/P2P)');
+              });
+            } else if (pc.connectionState === 'failed') {
+              alert('Соединение не удалось. Проверьте сеть.');
+              hangup();
+            }
+          };
+        }
+
+        async function toggleScreenShare() {
+          if (isScreenSharing.value) {
+            // Остановить
+            screenStream?.getTracks().forEach(t => t.stop());
+            screenStream = null;
+
+            if (pc && localStream) {
+              const videoTrack = localStream.getVideoTracks()[0];
+              const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+              sender?.replaceTrack(videoTrack);
+            }
+
+            isScreenSharing.value = false;
+            document.getElementById('localVideo').srcObject = localStream;
+          } else {
+            // Запустить
+            try {
+              screenStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { cursor: 'motion', width: { ideal: 1280 } },
+                audio: false
+              });
+
+              isScreenSharing.value = true;
+              const screenTrack = screenStream.getVideoTracks()[0];
+              if (pc) {
+                const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+                sender?.replaceTrack(screenTrack) || pc.addTrack(screenTrack, screenStream);
+              }
+              document.getElementById('localVideo').srcObject = screenStream;
+            } catch (e) {
+              if (e.name !== 'NotAllowedError') {
+                alert('Не удалось начать демонстрацию экрана.');
+              }
+            }
+          }
+        }
+
+        // --- Room Logic ---
+        async function createOrJoinRoom() {
+          if (!username.value.trim()) return;
+          localStorage.setItem('mycall_username', username.value);
+
+          if (roomFromUrl.value) {
+            joinRoom(roomFromUrl.value);
+          } else {
+            const id = generateRoomID();
+            roomID.value = id;
+            roomLink.value = `${window.location.origin}?room=${id}`;
+            await enterRoom(id, true);
+          }
+        }
+
+        async function joinRoom(id) {
+          roomID.value = id;
+          roomLink.value = `${window.location.origin}?room=${id}`;
+          await enterRoom(id, false);
+        }
+
+        async function enterRoom(id, isCreator) {
+          try {
+            await getMedia();
+            roomRef = db.ref(`rooms/${id}`);
+
+            const snapshot = await roomRef.once('value');
+            const data = snapshot.val();
+
+            if (isCreator) {
+              if (data && data.creator) {
+                state.value = 'waiting';
+                setupListeners(id);
+              } else {
+                await roomRef.set({
+                  creator: username.value,
+                  createdAt: firebase.database.ServerValue.TIMESTAMP,
+                  offer: null,
+                  answer: null,
+                  iceCandidates: []
+                });
+                state.value = 'waiting';
+                setupListeners(id);
+              }
+            } else {
+              if (!data?.creator) {
+                alert('Комната не существует.');
+                state.value = 'setup';
+                return;
+              }
+              remoteUsername.value = data.creator;
+              callerID = 'creator';
+              state.value = 'incoming';
+              setupListeners(id);
+            }
+          } catch (e) {
+            console.error(e);
+            state.value = 'setup';
+          }
+        }
+
+        function setupListeners(roomId) {
+          roomRef.on('value', async (snapshot) => {
+            const data = snapshot.val();
+            if (!data || !pc) return;
+
+            // Ответ на offer
+            if (data.offer && !data.answer && callerID !== 'creator' && state.value === 'call') {
+              await createAnswer(data.offer, roomId);
+            }
+
+            // Установка answer
+            if (data.answer && pc.signalingState === 'have-local-offer') {
+              await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+            }
+
+            // ICE-кандидаты
+            if (Array.isArray(data.iceCandidates)) {
+              for (const cand of data.iceCandidates) {
+                if (cand && pc) {
+                  try {
+                    await pc.addIceCandidate(new RTCIceCandidate(cand));
+                  } catch (e) {
+                    console.warn('ICE add error:', e);
+                  }
+                }
+              }
+            }
+          });
+
+          roomRef.child('creator').onDisconnect().update({ leftAt: Date.now() });
+        }
+
+        async function acceptCall() {
+          state.value = 'call';
+          try {
+            await createPeerConnection();
+            await createOffer(roomID.value);
+          } catch (e) {
+            alert('Не удалось принять звонок.');
+            hangup();
+          }
+        }
+
+        async function createOffer(roomId) {
+          const offer = await pc.createOffer({ offerToReceiveVideo: 1, offerToReceiveAudio: 1 });
+          await pc.setLocalDescription(offer);
+          await roomRef.update({ offer });
+        }
+
+        async function createAnswer(offer, roomId) {
+          await pc.setRemoteDescription(new RTCSessionDescription(offer));
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          await roomRef.update({ answer });
+          state.value = 'call';
+        }
+
+        function declineCall() { hangup(); }
+
+        function toggleMute() {
+          const track = localStream?.getAudioTracks()[0];
+          if (track) {
+            track.enabled = !track.enabled;
+            isMuted.value = !track.enabled;
+          }
+        }
+
+        function toggleVideo() {
+          const track = localStream?.getVideoTracks()[0];
+          if (track) {
+            track.enabled = !track.enabled;
+            isVideoOff.value = !track.enabled;
+          }
+        }
+
+        function hangup() {
+          [localStream, screenStream, remoteStream].forEach(s => s?.getTracks().forEach(t => t.stop()));
+          pc?.close();
+          roomRef?.off();
+          pc = localStream = screenStream = remoteStream = roomRef = null;
+
+          roomID.value = '';
+          roomLink.value = '';
+          remoteUsername.value = '';
+          isScreenSharing.value = false;
+          window.history.pushState({}, '', window.location.pathname);
+          state.value = 'setup';
+        }
+
+        onMounted(() => {
+          if (!window.RTCPeerConnection) {
+            alert('WebRTC не поддерживается.');
+            return;
+          }
+          setTimeout(() => state.value = 'setup', 300);
+        });
+
         return {
-          state,
-          username,
-          roomID,
-          roomFromUrl, // ✅ строка или null
-          createOrJoinRoom,
-          joinRoom
+          state, username, roomID, remoteUsername, roomLink, copied,
+          isMuted, isVideoOff, isScreenSharing, isMobile,
+          roomFromUrl, // ✅ строка
+          createOrJoinRoom, joinRoom, acceptCall, declineCall,
+          toggleMute, toggleVideo, toggleScreenShare, hangup, copyLink
         };
       }
     }).mount('#app');
 
-    // ✅ Регистрация SW как /sw.js
+    // ✅ Service Worker — без пробелов!
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
-          .catch(console.warn);
+          .then(reg => console.log('✅ SW registered:', reg.scope))
+          .catch(err => console.warn('❌ SW error:', err));
       });
     }
   </script>
