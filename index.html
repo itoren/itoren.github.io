@@ -205,15 +205,15 @@
   </div>
 
   <script>
-    // ВАЖНО: Замените эти ключи на свои реальные ключи Firebase
+    // ПРИМЕНЕННЫЕ ПАРАМЕТРЫ FIREBASE
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY", 
-      authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-      databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-      projectId: "YOUR_PROJECT_ID",
-      storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-      messagingSenderId: "YOUR_MESSAGING_ID",
-      appId: "YOUR_APP_ID"
+      apiKey: "AIzaSyDm0pktTEXSg2NYNKa5QYyFIaOmvUpcTlU",
+      authDomain: "itoren-294cd.firebaseapp.com",
+      databaseURL: "https://itoren-294cd-default-rtdb.firebaseio.com",
+      projectId: "itoren-294cd",
+      storageBucket: "itoren-294cd.firebasestorage.app",
+      messagingSenderId: "1062865810662",
+      appId: "1:1062865810662:web:82633754d15fa6a741f727"
     };
 
     let db;
@@ -223,7 +223,6 @@
       console.log('✅ Firebase инициализирован');
     } catch (e) {
       console.error('❌ Firebase initialization error:', e);
-      // Если Firebase не инициализировался, остаемся в режиме init, пока пользователь не перезагрузит.
     }
   </script>
 
@@ -253,9 +252,13 @@
         let roomRef = null;
         let callerID = null; // ID отправителя Offer/Answer
 
+        // ПРИМЕНЕННЫЕ ICE SERVERS
         const iceServers = [
-          { urls: "stun:stun.l.google.com:19302" },
-          { urls: "stun:stun1.l.google.com:19302" },
+          { urls: "stun:stun.relay.metered.ca:80" },
+          { urls: "turn:global.relay.metered.ca:80", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turn:global.relay.metered.ca:443", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
+          { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
         ];
 
         // --- WebRTC Helper Functions ---
@@ -330,23 +333,19 @@
           localStorage.setItem('mycall_username', username.value.trim());
 
           if (roomFromUrl.value) {
-            // Переход по ссылке: ищем комнату
             roomID.value = roomFromUrl.value;
             roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
             state.value = 'incoming';
           } else {
-            // Создание новой комнаты
             const id = generateRoomID();
             roomID.value = id;
             roomLink.value = `${window.location.origin}?room=${id}`;
             state.value = 'waiting';
             
             roomRef = db.ref(`rooms/${id}`);
-            // Инициализируем слушатель на случай, если удаленная сторона завершит звонок
             roomRef.child('hangup').on('value', handleRemoteHangup);
           }
           
-          // Начинаем слушать общие сигналы после определения roomID
           if (roomID.value) {
               listenForSignaling();
           }
@@ -372,7 +371,7 @@
             state.value = 'call';
             createPeerConnection();
             
-            // 1. Устанавливаем Remote Description (Offer, который мы получили в listenForSignaling)
+            // 1. Получаем Offer из DB
             const offerSnapshot = await roomRef.child('offers').limitToFirst(1).get();
             const offerData = offerSnapshot.val() ? Object.values(offerSnapshot.val())[0] : null;
             
@@ -382,11 +381,12 @@
             }
             
             remoteUsername.value = offerData.username || 'Собеседник';
-            callerID = offerSnapshot.key || Object.keys(offerSnapshot.val())[0]; // Получаем ключ offer
+            callerID = offerSnapshot.key || Object.keys(offerSnapshot.val())[0]; 
             
+            // 2. Устанавливаем Offer
             await pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
             
-            // 2. Создаем и отправляем Answer
+            // 3. Создаем и отправляем Answer
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
             
@@ -395,9 +395,9 @@
                 username: username.value.trim()
             });
 
-            // 3. Начинаем слушать ответы/кандидаты (если не слушали ранее)
+            // 4. Начинаем слушать ответы/кандидаты
             listenForAnswer();
-            listenForCandidates(); // Необходимо убедиться, что кандидаты будут получены
+            listenForCandidates(); 
 
           } catch (e) {
             console.error("Failed to accept call:", e);
@@ -410,39 +410,35 @@
         function listenForSignaling() {
             if (!roomRef) return;
             
-            // Слушаем Offer (Актуально для того, кто ждет, т.е. Receiver)
+            // Слушаем Offer (для Receiver)
             roomRef.child('offers').on('child_added', (snapshot) => {
                 const offerData = snapshot.val();
                 
                 if (state.value === 'incoming' && offerData && offerData.sdp) {
-                    // Если мы в режиме Incoming и пришел Offer, мы его обрабатываем только один раз
                     remoteUsername.value = offerData.username || 'Собеседник';
                     callerID = snapshot.key;
-                    // ПРИНЯТИЕ ЗВОНКА будет инициировано кнопкой "Принять"
                 }
             });
             
-            // Слушаем Answer (Актуально для того, кто звонит, т.е. Caller)
+            // Слушаем Answer (для Caller)
             roomRef.child('answers').on('child_added', async (snapshot) => {
                 if (state.value === 'waiting' && pc && snapshot.val().sdp) {
                     const answerData = snapshot.val();
-                    // Убеждаемся, что это ответ на наш Offer (ключ совпадает)
+                    
                     if (snapshot.key === callerID) {
                         await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
-                        // Теперь соединение установлено, переходим в call
                         state.value = 'call';
-                        listenForCandidates(); // Начинаем слушать ICE
+                        listenForCandidates(); 
                     }
                 }
             });
             
-            // Слушаем ICE Candidates
+            // Слушаем ICE Candidates (для обеих сторон после установки SDP)
             listenForCandidates();
         }
         
         function listenForCandidates() {
              if (!roomRef || !pc) return;
-             // Слушаем ICE Candidates от удаленной стороны
              roomRef.child('iceCandidates').on('child_added', (snapshot) => {
                 const candidateData = snapshot.val();
                 if (candidateData && candidateData.candidate) {
@@ -456,21 +452,7 @@
         }
         
         function listenForAnswer() {
-            // Этот слушатель нужен только для Caller, чтобы дождаться Answer
-            if (!roomRef) return;
-            
-            roomRef.child('answers').on('child_added', async (snapshot) => {
-                if (state.value === 'waiting' && pc && snapshot.val().sdp) {
-                    const answerData = snapshot.val();
-                    
-                    // Убеждаемся, что это ответ на наш Offer
-                    if (snapshot.key === callerID) {
-                        await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
-                        state.value = 'call';
-                        listenForCandidates(); // Начинаем слушать ICE
-                    }
-                }
-            });
+            // Этот слушатель уже встроен в listenForSignaling, но оставим здесь для ясности
         }
 
 
@@ -490,7 +472,7 @@
           if (pc) pc.close();
           if (roomRef) {
             if (state.value === 'call' || state.value === 'waiting') {
-                roomRef.child('hangup').set(true); // Сообщаем, что вешаем трубку
+                roomRef.child('hangup').set(true); 
             }
             roomRef.off();
           }
@@ -578,18 +560,11 @@
 
         onMounted(() => {
           if (!window.RTCPeerConnection) {
-            alert('Ваш браузер не поддерживает WebRTC.');
+            alert('Ваш браузер не поддерживает WebRTC. Пожалуйста, используйте Chrome, Firefox или Edge.');
             state.value = 'setup';
             return;
           }
-          
-          // Если комната уже есть в URL, но мы не начали обработку,
-          // показываем setup, чтобы пользователь нажал кнопку "Присоединиться".
-          if (roomFromUrl.value) {
-              state.value = 'setup';
-          } else {
-              state.value = 'setup';
-          }
+          state.value = 'setup';
         });
 
         return {
