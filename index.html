@@ -127,15 +127,32 @@
     </div>
 
     <!-- Waiting -->
-    <div v-else-if="state === 'waiting'" class="video-container">
-      <div class="status-bar bg-warning text-dark">
-        <i class="bi bi-clock me-2"></i> Ожидание собеседника…
-      </div>
-      <h3 class="logo text-white mb-3">MyCall</h3>
-      <button @click="hangup" class="btn btn-outline-light btn-sm mt-4">
-        <i class="bi bi-arrow-left"></i> Отмена
+    <!-- Waiting -->
+<div v-else-if="state === 'waiting'" class="video-container">
+  <div class="status-bar bg-warning text-dark">
+    <i class="bi bi-clock me-2"></i> Ожидание собеседника…
+  </div>
+
+  <div class="setup-card mt-auto mb-auto" style="max-width: 400px;">
+    <h4 class="logo text-center mb-3">MyCall</h4>
+    <p class="text-center text-muted small mb-3">Отправьте ссылку собеседнику</p>
+
+    <div class="input-group mb-3">
+      <input :value="roomLink" class="form-control form-control-sm" readonly>
+      <button class="btn btn-outline-primary" @click="copyLink">
+        <i class="bi bi-clipboard"></i>
       </button>
     </div>
+
+    <p v-if="copied" class="text-success small text-center">
+      <i class="bi bi-check-circle-fill me-1"></i> Скопировано!
+    </p>
+
+    <button @click="hangup" class="btn btn-outline-secondary btn-sm w-100 mt-2">
+      <i class="bi bi-arrow-left me-1"></i> Отменить
+    </button>
+  </div>
+</div>
 
     <!-- Incoming -->
     <div v-else-if="state === 'incoming'" class="video-container">
