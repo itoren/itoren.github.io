@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
-  <title>MyCall — Видеозвонки как в FaceTime</title>
+  <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+  <title>MyCall — Видеозвонки</title>
 
   <!-- PWA -->
   <link rel="manifest" href="/manifest.json">
@@ -17,15 +18,11 @@
   <!-- Vue -->
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
-  <!-- Firebase -->
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
-
   <style>
     :root { --face-blue: #0071e3; }
     body {
       background: linear-gradient(135deg, #e0e0e5, #d0d4db);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       margin: 0; height: 100vh; overflow: hidden;
     }
     .video-container {
@@ -103,22 +100,19 @@
 
         <button @click="createOrJoinRoom" :disabled="!username.trim()"
           class="btn btn-primary btn-lg w-100 mb-3">
-          <i class="bi bi-plus-circle me-2"></i> {{ roomFromUrl ? 'Продолжить присоединение' : 'Создать/Присоединиться' }}
+          <i class="bi bi-plus-circle me-2"></i> {{ roomFromUrl ? 'Продолжить' : 'Создать/Присоединиться' }}
         </button>
 
-        <!-- Если в URL есть комната -->
         <div v-if="roomFromUrl" class="mt-3 p-3 bg-light rounded-3">
-          <p class="mb-1"><small>Вы перешли по ссылке в комнату:</small></p>
+          <p class="mb-1"><small>Комната:</small></p>
           <p class="fw-bold text-primary mb-2">{{ roomFromUrl }}</p>
           <button @click="handleJoinFromUrl" :disabled="!username.trim()" class="btn btn-success w-100">
-            <i class="bi bi-telephone-inbound me-2"></i> Присоединиться к {{ roomFromUrl }}
+            <i class="bi bi-telephone-inbound me-2"></i> Присоединиться
           </button>
-          <p v-if="!username.trim()" class="text-danger mt-2 small">Введите имя для продолжения.</p>
         </div>
 
-        <!-- Ссылка для создателя комнаты -->
         <div v-if="roomLink && !roomFromUrl" class="mt-4">
-          <p class="small text-muted mb-2">Скопируйте ссылку и отправьте собеседнику:</p>
+          <p class="small text-muted mb-2">Ссылка для собеседника:</p>
           <div class="input-group">
             <input :value="roomLink" class="form-control" readonly>
             <button class="btn btn-outline-primary" @click="copyLink">
@@ -132,40 +126,24 @@
       </div>
     </div>
 
-    <!-- Waiting (Creator) -->
+    <!-- Waiting -->
     <div v-else-if="state === 'waiting'" class="video-container">
       <div class="status-bar bg-warning text-dark">
         <i class="bi bi-clock me-2"></i> Ожидание собеседника…
       </div>
       <h3 class="logo text-white mb-3">MyCall</h3>
-      <p class="text-white">Ваша комната: <span class="fw-bold">{{ roomID }}</span></p>
-      
-      <div class="mt-4 text-center">
-        <p class="small text-white opacity-75 mb-2">Поделитесь этой ссылкой:</p>
-        <div class="input-group justify-content-center">
-            <input :value="roomLink" class="form-control" style="max-width: 300px;" readonly>
-            <button class="btn btn-outline-light" @click="copyLink">
-              <i class="bi bi-clipboard"></i>
-            </button>
-        </div>
-        <p v-if="copied" class="text-light mt-2 small">
-            <i class="bi bi-check-circle-fill me-1"></i> Скопировано!
-        </p>
-      </div>
-
       <button @click="hangup" class="btn btn-outline-light btn-sm mt-4">
         <i class="bi bi-arrow-left"></i> Отмена
       </button>
     </div>
 
-    <!-- Incoming (Receiver) -->
+    <!-- Incoming -->
     <div v-else-if="state === 'incoming'" class="video-container">
       <div class="status-bar">
         <i class="bi bi-telephone-incoming me-2"></i> Входящий звонок
       </div>
       <div class="text-center text-white mt-4">
         <h4 class="logo">{{ remoteUsername || 'Неизвестный' }}</h4>
-        <p class="opacity-75">Предлагает видеозвонок</p>
         <div class="mt-4 d-flex gap-3 justify-content-center">
           <button @click="declineCall" class="btn-circle btn-red">
             <i class="bi bi-telephone-x"></i>
@@ -181,20 +159,21 @@
     <div v-else-if="state === 'call'" class="video-container">
       <div class="status-bar" :class="isScreenSharing ? 'bg-orange' : 'bg-success'">
         <i :class="isScreenSharing ? 'bi bi-display' : 'bi bi-circle-fill me-2'"></i>
-        <span>{{ isScreenSharing ? 'Демонстрация экрана' : remoteUsername ? remoteUsername : 'Собеседник' }}</span>
+        <span>{{ isScreenSharing ? 'Экран' : remoteUsername || 'Собеседник' }}</span>
       </div>
 
-      <video id="remoteVideo" autoplay playsinline muted="false" class="active"></video>
+      <video id="remoteVideo" autoplay playsinline></video>
       <video id="localVideo" autoplay playsinline muted></video>
 
       <div class="controls">
-        <button @click="toggleMute" class="btn-circle btn-gray" :aria-pressed="isMuted">
+        <button @click="toggleMute" class="btn-circle btn-gray" :class="{ 'btn-outline-danger': isMuted }">
           <i :class="isMuted ? 'bi bi-mic-mute-fill' : 'bi bi-mic-fill'"></i>
         </button>
-        <button @click="toggleVideo" class="btn-circle btn-gray" :aria-pressed="isVideoOff">
+        <button @click="toggleVideo" class="btn-circle btn-gray" :class="{ 'btn-outline-danger': isVideoOff }">
           <i :class="isVideoOff ? 'bi bi-camera-video-off-fill' : 'bi bi-camera-video-fill'"></i>
         </button>
-        <button v-if="!isMobile" @click="toggleScreenShare" class="btn-circle btn-orange" :aria-pressed="isScreenSharing">
+        <button v-if="!isMobile" @click="toggleScreenShare" class="btn-circle" 
+                :class="isScreenSharing ? 'btn-orange' : 'btn-gray'">
           <i class="bi bi-display"></i>
         </button>
         <button @click="hangup" class="btn-circle btn-red">
@@ -204,8 +183,12 @@
     </div>
   </div>
 
-  <script>
-    // КОНФИГУРАЦИЯ FIREBASE (Ваши параметры)
+  <script type="module">
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
+    import {
+      getDatabase, ref as dbRef, child, get, onValue, off, set, push, remove
+    } from 'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
+
     const firebaseConfig = {
       apiKey: "AIzaSyDm0pktTEXSg2NYNKa5QYyFIaOmvUpcTlU",
       authDomain: "itoren-294cd.firebaseapp.com",
@@ -218,20 +201,15 @@
 
     let db;
     try {
-      firebase.initializeApp(firebaseConfig);
-      db = firebase.database();
-      console.log('✅ Firebase инициализирован');
-    } catch (e) {
-      console.error('❌ Firebase initialization error:', e);
-    }
-  </script>
+      const app = initializeApp(firebaseConfig);
+      db = getDatabase(app);
+    } catch (e) {}
 
-  <script>
     const { createApp, ref, onMounted, watch } = Vue;
 
     createApp({
       setup() {
-        const state = ref('init'); 
+        const state = ref('init');
         const username = ref(localStorage.getItem('mycall_username') || '');
         const roomID = ref('');
         const remoteUsername = ref('');
@@ -250,251 +228,293 @@
         let remoteStream = null;
         let pc = null;
         let roomRef = null;
-        let callerID = null; 
+        let offerKey = null;
+        let firebaseListeners = [];
 
-        // ICE SERVERS (Ваши параметры)
         const iceServers = [
+          { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun.relay.metered.ca:80" },
           { urls: "turn:global.relay.metered.ca:80", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
-          { urls: "turn:global.relay.metered.ca:80?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
-          { urls: "turn:global.relay.metered.ca:443", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
-          { urls: "turns:global.relay.metered.ca:443?transport=tcp", username: "8a7442639411ebfc09636a1a", credential: "qbFGq2h7QIlueoIk" },
         ];
 
-        // --- WebRTC Helper Functions ---
-
+        // Надёжная установка видео
         function setVideoSrc(videoId, stream) {
-          const video = document.getElementById(videoId);
-          if (video) {
-            video.srcObject = stream;
-            if (videoId === 'remoteVideo' && stream) {
-                video.classList.add('active');
+          if (!stream) return;
+          let attempts = 0;
+          const trySet = () => {
+            const video = document.getElementById(videoId);
+            if (video) {
+              video.srcObject = stream;
+              video.play().catch(() => {
+                const unlock = () => { video.play().catch(() => {}); video.removeEventListener('click', unlock); };
+                video.addEventListener('click', unlock);
+              });
+              if (videoId === 'remoteVideo') video.classList.add('active');
+            } else if (attempts < 20) {
+              attempts++;
+              setTimeout(trySet, 50);
             }
-          }
+          };
+          trySet();
         }
 
+        // Получение медиа
         async function getMedia() {
-          if (localStream) {
-            localStream.getTracks().forEach(t => t.stop());
-            localStream = null;
-          }
+          if (localStream) localStream.getTracks().forEach(t => t.stop());
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: { width: 1280, height: 720, facingMode: 'user' },
+              video: { width: { ideal: 1280 }, height: { ideal: 720 } },
               audio: true
             });
             localStream = stream;
-            setVideoSrc('localVideo', localStream);
             return stream;
           } catch (e) {
-            console.error('Media access error:', e);
-            alert('Ошибка медиа: ' + (e.name === 'NotAllowedError' ? 'Доступ к камере/микрофону запрещен.' : e.message || 'Неизвестная ошибка.'));
+            let msg = 'Ошибка медиа: ';
+            if (e.name === 'NotAllowedError') msg += 'разрешите доступ к камере и микрофону.';
+            else if (e.name === 'NotFoundError') msg += 'устройства не найдены.';
+            else msg += 'неизвестная ошибка.';
+            alert(msg);
             throw e;
           }
         }
 
+        // Создание PeerConnection
         function createPeerConnection() {
           pc = new RTCPeerConnection({ iceServers });
-
-          pc.onicecandidate = async (event) => {
-            if (event.candidate && roomRef) {
-              await roomRef.child('iceCandidates').push({ candidate: event.candidate.toJSON() });
-            }
-          };
-
-          pc.ontrack = (event) => {
-            if (remoteStream) return; 
-            remoteStream = event.streams[0];
-            setVideoSrc('remoteVideo', remoteStream);
-          };
-          
-          pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-                console.warn("Connection state changed to:", pc.connectionState);
-                if (state.value === 'call') {
-                    alert('Соединение потеряно. Завершение вызова.');
-                    hangup();
-                }
-            }
-          };
 
           if (localStream) {
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
           }
+
+          pc.ontrack = (event) => {
+            if (!remoteStream && event.streams[0]) {
+              remoteStream = event.streams[0];
+            }
+          };
+
+          pc.onicecandidate = async (event) => {
+            if (event.candidate && roomRef) {
+              await push(child(roomRef, 'iceCandidates'), { candidate: event.candidate.toJSON() });
+            }
+          };
+
+          pc.onconnectionstatechange = () => {
+            if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+              if (state.value === 'call') hangup();
+            }
+          };
         }
 
-        // --- Состояния и Логика ---
+        // Сигналинг
+        async function createOffer() {
+          const offer = await pc.createOffer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
+          await pc.setLocalDescription(offer);
+
+          const offerData = {
+            sdp: pc.localDescription.sdp,
+            type: pc.localDescription.type,
+            username: username.value.trim() || 'Пользователь',
+            timestamp: Date.now()
+          };
+
+          const offerRef = await push(child(roomRef, 'offers'), offerData);
+          offerKey = offerRef.key;
+        }
 
         async function createOrJoinRoom() {
-          if (!username.value.trim()) {
-            alert('Пожалуйста, введите ваше имя.');
-            return;
-          }
-          localStorage.setItem('mycall_username', username.value.trim());
+          const cleanName = username.value.trim();
+          if (!cleanName) return alert('Введите имя');
+
+          localStorage.setItem('mycall_username', cleanName);
 
           if (roomFromUrl.value) {
             roomID.value = roomFromUrl.value;
             roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
             state.value = 'incoming';
+            roomRef = dbRef(db, `rooms/${roomID.value}`);
+            listenForOffers();
           } else {
-            const id = generateRoomID();
+            const id = Math.random().toString(36).substring(2, 8).toUpperCase();
             roomID.value = id;
             roomLink.value = `${window.location.origin}?room=${id}`;
-            state.value = 'waiting';
-            
-            roomRef = db.ref(`rooms/${id}`);
-            roomRef.child('hangup').on('value', handleRemoteHangup);
-          }
-          
-          if (roomID.value) {
-              listenForSignaling();
-          }
-        }
-        
-        function handleJoinFromUrl() {
-            if (!username.value.trim()) {
-                 alert('Пожалуйста, введите ваше имя.');
-                 return;
+            roomRef = dbRef(db, `rooms/${id}`);
+
+            try {
+              await getMedia();
+              createPeerConnection();
+              await createOffer();
+              state.value = 'waiting';
+              listenForAnswer();
+            } catch (e) {
+              hangup();
             }
-            localStorage.setItem('mycall_username', username.value.trim());
-            roomID.value = roomFromUrl.value;
-            roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
-            state.value = 'incoming';
-            roomRef = db.ref(`rooms/${roomID.value}`);
-            listenForSignaling();
+          }
         }
 
+        function handleJoinFromUrl() {
+          const cleanName = username.value.trim();
+          if (!cleanName) return alert('Введите имя');
+          localStorage.setItem('mycall_username', cleanName);
+          roomID.value = roomFromUrl.value;
+          roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
+          state.value = 'incoming';
+          roomRef = dbRef(db, `rooms/${roomID.value}`);
+          listenForOffers();
+        }
+
+        function listenForOffers() {
+          if (!roomRef || state.value !== 'incoming') return;
+          const offersRef = child(roomRef, 'offers');
+          const listener = onValue(offersRef, (snapshot) => {
+            if (snapshot.exists()) {
+              const data = Object.values(snapshot.val())[0];
+              if (data?.username) remoteUsername.value = data.username;
+            }
+          });
+          firebaseListeners.push({ ref: offersRef, fn: listener });
+        }
+
+        function listenForAnswer() {
+          if (!roomRef || !offerKey) return;
+          const answerRef = child(roomRef, `answers/${offerKey}`);
+          const listener = onValue(answerRef, async (snapshot) => {
+            if (snapshot.exists() && pc) {
+              const answerData = snapshot.val();
+              if (answerData?.sdp && answerData.type === 'answer') {
+                try {
+                  await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: answerData.sdp }));
+                  state.value = 'call';
+                } catch (e) {
+                  hangup();
+                }
+              }
+            }
+          });
+          firebaseListeners.push({ ref: answerRef, fn: listener });
+        }
 
         async function acceptCall() {
           try {
-            // 1. Запрашиваем медиа (Если здесь ошибка, state не сменится и не вылетит, а зависнет на Incoming)
-            await getMedia(); 
-            
+            await getMedia();
             createPeerConnection();
-            
-            // 2. Получаем Offer
-            const offerSnapshot = await roomRef.child('offers').limitToFirst(1).get();
-            const offerData = offerSnapshot.val() ? Object.values(offerSnapshot.val())[0] : null;
-            
-            if (!offerData || !offerData.sdp) {
-                alert("Ошибка: Не найден Offer от вызывающей стороны.");
-                return hangup();
+
+            let offerData = null;
+            for (let i = 0; i < 10; i++) {
+              const offersSnap = await get(child(roomRef, 'offers'));
+              const offers = offersSnap.val();
+              if (offers) {
+                offerKey = Object.keys(offers)[0];
+                offerData = offers[offerKey];
+                break;
+              }
+              await new Promise(r => setTimeout(r, 500));
             }
-            
-            remoteUsername.value = offerData.username || 'Собеседник';
-            callerID = offerSnapshot.key || Object.keys(offerSnapshot.val())[0]; 
-            
-            // 3. Устанавливаем Offer
-            await pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
-            
-            // 4. Создаем и отправляем Answer
-            const answer = await pc.createAnswer();
+
+            if (!offerData) throw new Error();
+            if (typeof offerData.sdp !== 'string' || offerData.type?.toLowerCase() !== 'offer') throw new Error();
+
+            remoteUsername.value = offerData.username?.trim() || 'Собеседник';
+
+            await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offerData.sdp }));
+
+            const answer = await pc.createAnswer({ offerToReceiveVideo: true, offerToReceiveAudio: true });
             await pc.setLocalDescription(answer);
-            
-            await roomRef.child('answers').push({
-                sdp: pc.localDescription,
-                username: username.value.trim()
+
+            await set(child(roomRef, `answers/${offerKey}`), {
+              sdp: pc.localDescription.sdp,
+              type: pc.localDescription.type,
+              username: username.value.trim() || 'Я'
             });
-            
-            // 5. Переходим в Call state и начинаем слушать ICE
+
             state.value = 'call';
-            listenForCandidates(); 
 
           } catch (e) {
-            console.error("Failed to accept call:", e);
             hangup();
           }
         }
-        
-        // --- Логика сигналинга (Database Listeners) ---
-        
-        async function createOffer() {
-            const offer = await pc.createOffer({ offerToReceiveVideo: 1, offerToReceiveAudio: 1 });
-            await pc.setLocalDescription(offer);
-            
-            // Отправляем Offer в комнату
-            const offerRef = await roomRef.child('offers').push({
-                sdp: pc.localDescription,
-                username: username.value.trim()
-            });
-            callerID = offerRef.key; // Сохраняем свой ключ, чтобы ждать ответ под ним
-        }
 
-
-        function listenForSignaling() {
-            if (!roomRef) return;
-            
-            // Слушаем Offer (для Receiver, чтобы знать, кто звонит)
-            roomRef.child('offers').on('child_added', (snapshot) => {
-                const offerData = snapshot.val();
-                
-                if (state.value === 'incoming' && offerData && offerData.sdp) {
-                    remoteUsername.value = offerData.username || 'Собеседник';
-                }
-            });
-            
-            // Слушаем Answer (для Caller, чтобы завершить установку соединения)
-            roomRef.child('answers').on('child_added', async (snapshot) => {
-                if (state.value === 'waiting' && pc && snapshot.val().sdp) {
-                    const answerData = snapshot.val();
-                    
-                    if (snapshot.key === callerID) {
-                        await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
-                        state.value = 'call';
-                        listenForCandidates(); 
-                    }
-                }
-            });
-            
-            // Слушаем ICE Candidates
-            listenForCandidates();
-        }
-        
         function listenForCandidates() {
-             if (!roomRef || !pc) return;
-             roomRef.child('iceCandidates').on('child_added', (snapshot) => {
-                const candidateData = snapshot.val();
-                if (candidateData && candidateData.candidate) {
-                    try {
-                         pc.addIceCandidate(new RTCIceCandidate(candidateData.candidate));
-                    } catch (e) {
-                        console.error('Error adding received ICE candidate:', e);
-                    }
-                }
+          if (!roomRef || !pc) return;
+          const iceRef = child(roomRef, 'iceCandidates');
+          const listener = onValue(iceRef, (snapshot) => {
+            if (!snapshot.exists()) return;
+            snapshot.forEach((childSnap) => {
+              const data = childSnap.val();
+              if (data?.candidate) {
+                pc.addIceCandidate(new RTCIceCandidate(data.candidate)).catch(() => {});
+              }
             });
+          });
+          firebaseListeners.push({ ref: iceRef, fn: listener });
         }
-        
-        function handleRemoteHangup(snapshot) {
-            if (snapshot.val() === true && state.value === 'call') {
-                alert('Собеседник завершил вызов.');
-                hangup();
+
+        // 🔹 ИСПРАВЛЕНО: корректное переключение камера/экран
+        async function toggleScreenShare() {
+          if (isScreenSharing.value) {
+            // Возврат к камере
+            if (screenStream) {
+              screenStream.getTracks().forEach(t => t.stop());
+              screenStream = null;
             }
+            isScreenSharing.value = false;
+
+            const cameraTrack = localStream?.getVideoTracks()[0];
+            const videoSender = pc?.getSenders().find(s => s.track?.kind === 'video');
+            if (videoSender && cameraTrack) {
+              videoSender.replaceTrack(cameraTrack);
+            }
+            if (localStream) setVideoSrc('localVideo', localStream);
+          } else {
+            // Демонстрация экрана
+            try {
+              const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { cursor: "motion", width: { ideal: 1280 }, height: { ideal: 720 } },
+                audio: false
+              });
+              screenStream = stream;
+              isScreenSharing.value = true;
+
+              const screenTrack = screenStream.getVideoTracks()[0];
+              const videoSender = pc?.getSenders().find(s => s.track?.kind === 'video');
+              
+              if (videoSender && screenTrack) {
+                videoSender.replaceTrack(screenTrack);
+              } else if (pc) {
+                pc.addTrack(screenTrack, screenStream);
+              }
+              setVideoSrc('localVideo', screenStream);
+            } catch (e) {
+              if (e.name !== 'NotAllowedError') {
+                isScreenSharing.value = false;
+              }
+            }
+          }
         }
-        
-        function declineCall() { hangup(); }
-        
+
         function hangup() {
           [localStream, screenStream, remoteStream].forEach(s => {
             if (s) s.getTracks().forEach(t => t.stop());
           });
           if (pc) pc.close();
+
+          firebaseListeners.forEach(({ ref, fn }) => off(ref, fn));
+          firebaseListeners = [];
+
           if (roomRef) {
-            if (state.value === 'call' || state.value === 'waiting') {
-                roomRef.child('hangup').set(true); 
-            }
-            roomRef.off();
+            set(child(roomRef, 'hangup'), true).catch(() => {});
+            setTimeout(() => { if (roomRef) remove(roomRef).catch(() => {}); }, 3000);
           }
 
           pc = localStream = screenStream = remoteStream = roomRef = null;
+          offerKey = null;
           roomID.value = '';
           remoteUsername.value = '';
           isScreenSharing.value = false;
-          
-          window.history.replaceState({}, document.title, window.location.pathname);
+          isMuted.value = false;
+          isVideoOff.value = false;
+          window.history.replaceState({}, '', window.location.pathname);
           state.value = 'setup';
         }
-
-        // --- UI Controls ---
 
         function toggleMute() {
           const track = localStream?.getAudioTracks()[0];
@@ -512,95 +532,45 @@
           }
         }
 
-        async function toggleScreenShare() {
-          if (!localStream) return;
-          
-          if (isScreenSharing.value) {
-            screenStream?.getTracks().forEach(t => t.stop());
-            screenStream = null;
-            isScreenSharing.value = false;
-            
-            const cameraTrack = localStream.getVideoTracks()[0];
-            const sender = pc?.getSenders().find(s => s.track?.kind === 'video');
-            if (sender && cameraTrack) {
-                 sender.replaceTrack(cameraTrack);
-            }
-            setVideoSrc('localVideo', localStream);
-          } else {
-            try {
-              screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: { cursor: 'motion', width: { ideal: 1920 }, frameRate: 30 },
-                audio: false
-              });
-              isScreenSharing.value = true;
-              
-              const screenTrack = screenStream.getVideoTracks()[0];
-              const sender = pc?.getSenders().find(s => s.track?.kind === 'video');
-              
-              if (sender && screenTrack) {
-                 sender.replaceTrack(screenTrack);
-              } else if (pc) {
-                  pc.addTrack(screenTrack, screenStream);
-              }
-              setVideoSrc('localVideo', screenStream);
-
-            } catch (e) {
-              if (e.name !== 'NotAllowedError') {
-                console.error("Screen share error:", e);
-                alert('Не удалось начать демонстрацию экрана.');
-              }
-              isScreenSharing.value = false; 
-            }
+        function copyLink() {
+          if (roomLink.value) {
+            navigator.clipboard.writeText(roomLink.value)
+              .then(() => { copied.value = true; setTimeout(() => copied.value = false, 2000); })
+              .catch(() => {});
           }
         }
 
-        function copyLink() {
-          if (!roomLink.value) return;
-          navigator.clipboard.writeText(roomLink.value).then(() => {
-            copied.value = true;
-            setTimeout(() => copied.value = false, 2000);
-          });
-        }
-        
-        function generateRoomID() {
-          return Math.random().toString(36).substring(2, 9).toUpperCase();
-        }
+        // 🔹 Установка видео при входе в 'call'
+        watch(state, (newState) => {
+          if (newState === 'call') {
+            if (localStream) setVideoSrc('localVideo', localStream);
+            if (remoteStream) setVideoSrc('remoteVideo', remoteStream);
+            listenForCandidates();
+          }
+        });
 
         onMounted(() => {
-          if (!window.RTCPeerConnection) {
-            alert('Ваш браузер не поддерживает WebRTC. Пожалуйста, используйте Chrome, Firefox или Edge.');
-            state.value = 'setup';
+          if (!window.RTCPeerConnection || !db) {
+            alert('Ошибка инициализации. Обновите страницу.');
             return;
           }
           state.value = 'setup';
-          
-          // Специальная обработка для режима 'waiting' (Caller)
-          // Он должен отправить Offer после того, как получит медиа
-          watch(state, (newState) => {
-              if (newState === 'call' && pc && state.value === 'call') {
-                 // Мы перешли в состояние 'call' (только Caller достигает этого после получения Answer)
-                 // Мы уже должны были отправить Offer, но для уверенности...
-                 if (roomRef && state.value === 'waiting') { 
-                     createOffer();
-                 }
-             }
-          });
         });
 
         return {
           state, username, roomID, remoteUsername, roomLink, copied,
           isMuted, isVideoOff, isScreenSharing, isMobile,
           roomFromUrl,
-          createOrJoinRoom, handleJoinFromUrl, acceptCall, declineCall,
+          createOrJoinRoom, handleJoinFromUrl, acceptCall, declineCall: hangup,
           toggleMute, toggleVideo, toggleScreenShare, hangup, copyLink
         };
       }
     }).mount('#app');
 
+    // PWA
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
-        navigator.serviceWorker.register('/sw.js')
-          .catch(err => console.warn('SW registration failed:', err));
+        navigator.serviceWorker.register('/sw.js').catch(() => {});
       });
     }
   </script>
