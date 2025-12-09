@@ -18,7 +18,6 @@
   <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
 
   <!-- Firebase -->
-  <!-- Используем SDK v9 (modular) как более современный, но для простоты оставим v8 (compat) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
@@ -38,7 +37,6 @@
     }
     #remoteVideo { 
         width: 100%; height: 100%; border-radius: 24px;
-        /* Спрятать, пока нет потока */
         opacity: 0; transition: opacity 0.3s;
     }
     #remoteVideo.active { opacity: 1; }
@@ -92,7 +90,7 @@
       </div>
     </div>
 
-    <!-- Setup -->
+    <!-- Setup (Включает логику для URL и создания/копирования ссылки) -->
     <div v-else-if="state === 'setup'" class="video-container">
       <div class="setup-card">
         <h2 class="logo text-center mb-3">MyCall</h2>
@@ -105,7 +103,7 @@
 
         <button @click="createOrJoinRoom" :disabled="!username.trim()"
           class="btn btn-primary btn-lg w-100 mb-3">
-          <i class="bi bi-plus-circle me-2"></i> Создать/Присоединиться
+          <i class="bi bi-plus-circle me-2"></i> {{ roomFromUrl ? 'Продолжить присоединение' : 'Создать/Присоединиться' }}
         </button>
 
         <!-- Если в URL есть комната, показываем опцию присоединиться -->
@@ -118,8 +116,8 @@
           <p v-if="!username.trim()" class="text-danger mt-2 small">Введите имя для продолжения.</p>
         </div>
 
-        <!-- Ссылка для создателя комнаты -->
-        <div v-if="roomLink && state === 'setup' && !roomFromUrl" class="mt-4">
+        <!-- Ссылка для создателя комнаты (появляется, если мы создаем новую комнату, но еще не перешли в 'waiting') -->
+        <div v-if="roomLink && !roomFromUrl" class="mt-4">
           <p class="small text-muted mb-2">Скопируйте ссылку и отправьте собеседнику:</p>
           <div class="input-group">
             <input :value="roomLink" class="form-control" readonly>
@@ -143,13 +141,16 @@
       <p class="text-white">Ваша комната: <span class="fw-bold">{{ roomID }}</span></p>
       
       <div class="mt-4 text-center">
-        <p class="small text-white opacity-75 mb-2">Поделитесь ссылкой:</p>
+        <p class="small text-white opacity-75 mb-2">Поделитесь этой ссылкой:</p>
         <div class="input-group justify-content-center">
-            <input :value="roomLink" class="form-control w-auto" style="max-width: 250px;" readonly>
+            <input :value="roomLink" class="form-control" style="max-width: 300px;" readonly>
             <button class="btn btn-outline-light" @click="copyLink">
               <i class="bi bi-clipboard"></i>
             </button>
         </div>
+        <p v-if="copied" class="text-light mt-2 small">
+            <i class="bi bi-check-circle-fill me-1"></i> Скопировано!
+        </p>
       </div>
 
       <button @click="hangup" class="btn btn-outline-light btn-sm mt-4">
@@ -184,7 +185,6 @@
       </div>
 
       <video id="remoteVideo" autoplay playsinline muted="false" class="active"></video>
-      <!-- При отсутствии локального потока, video будет просто пустым черным блоком -->
       <video id="localVideo" autoplay playsinline muted></video>
 
       <div class="controls">
@@ -223,7 +223,7 @@
       console.log('✅ Firebase инициализирован');
     } catch (e) {
       console.error('❌ Firebase initialization error:', e);
-      alert('Ошибка подключения к серверу Firebase. Проверьте конфигурацию.');
+      // Если Firebase не инициализировался, остаемся в режиме init, пока пользователь не перезагрузит.
     }
   </script>
 
@@ -232,7 +232,7 @@
 
     createApp({
       setup() {
-        const state = ref('init'); // init, setup, waiting, incoming, call
+        const state = ref('init'); 
         const username = ref(localStorage.getItem('mycall_username') || '');
         const roomID = ref('');
         const remoteUsername = ref('');
@@ -241,7 +241,6 @@
         const isMuted = ref(false);
         const isVideoOff = ref(false);
         const isScreenSharing = ref(false);
-        // Проверка на мобильные устройства для отключения демо экрана
         const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
         const urlParams = new URLSearchParams(window.location.search);
@@ -252,12 +251,11 @@
         let remoteStream = null;
         let pc = null;
         let roomRef = null;
+        let callerID = null; // ID отправителя Offer/Answer
 
-        // Надежные ICE сервера (используем общедоступные или ваши TURN)
         const iceServers = [
           { urls: "stun:stun.l.google.com:19302" },
           { urls: "stun:stun1.l.google.com:19302" },
-          // Добавьте TURN, если нужно пробивать строгие фаерволы
         ];
 
         // --- WebRTC Helper Functions ---
@@ -266,21 +264,20 @@
           const video = document.getElementById(videoId);
           if (video) {
             video.srcObject = stream;
-            // Убедимся, что видео отображается (нужно для remoteVideo)
             if (videoId === 'remoteVideo' && stream) {
-                video.style.opacity = 1;
+                video.classList.add('active');
             }
           }
         }
 
-        async function getMedia(useScreen = false) {
+        async function getMedia() {
           if (localStream) {
             localStream.getTracks().forEach(t => t.stop());
             localStream = null;
           }
           try {
             const stream = await navigator.mediaDevices.getUserMedia({
-              video: useScreen ? false : { width: 1280, height: 720, facingMode: 'user' },
+              video: { width: 1280, height: 720, facingMode: 'user' },
               audio: true
             });
             localStream = stream;
@@ -296,33 +293,28 @@
         function createPeerConnection() {
           pc = new RTCPeerConnection({ iceServers });
 
-          // 1. ICE Candidates
           pc.onicecandidate = async (event) => {
             if (event.candidate && roomRef) {
               await roomRef.child('iceCandidates').push({ candidate: event.candidate.toJSON() });
             }
           };
 
-          // 2. Remote Track (Получаем поток собеседника)
           pc.ontrack = (event) => {
-            if (remoteStream) return; // Уже подключен
+            if (remoteStream) return; 
             remoteStream = event.streams[0];
             setVideoSrc('remoteVideo', remoteStream);
           };
           
-          // 3. Remote Stream Removal (Для смены потоков, например при выходе)
           pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'failed') {
-              console.error("Connection failed.");
-              hangup();
-            }
-            if (pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
-                console.warn("Connection closed or disconnected.");
-                // Возможно, нужно повесить уведомление "Собеседник отключился"
+            if (pc.connectionState === 'failed' || pc.connectionState === 'disconnected' || pc.connectionState === 'closed') {
+                console.warn("Connection state changed to:", pc.connectionState);
+                if (state.value === 'call') {
+                    alert('Соединение потеряно. Завершение вызова.');
+                    hangup();
+                }
             }
           };
 
-          // Добавляем локальные треки
           if (localStream) {
             localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
           }
@@ -338,26 +330,28 @@
           localStorage.setItem('mycall_username', username.value.trim());
 
           if (roomFromUrl.value) {
-            // Пытаемся присоединиться к существующей комнате
+            // Переход по ссылке: ищем комнату
             roomID.value = roomFromUrl.value;
             roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
-            state.value = 'incoming'; // Переходим к ожиданию Offer
+            state.value = 'incoming';
           } else {
-            // Создаем новую комнату
+            // Создание новой комнаты
             const id = generateRoomID();
             roomID.value = id;
             roomLink.value = `${window.location.origin}?room=${id}`;
-            state.value = 'waiting'; // Переходим к ожиданию Caller (Offer)
+            state.value = 'waiting';
             
-            // Инициализируем комнату в DB, но медиа запрашиваем только при ответе
             roomRef = db.ref(`rooms/${id}`);
-            
-            // Слушаем изменения в комнате (для Incoming Call)
-            listenForSignaling();
+            // Инициализируем слушатель на случай, если удаленная сторона завершит звонок
+            roomRef.child('hangup').on('value', handleRemoteHangup);
+          }
+          
+          // Начинаем слушать общие сигналы после определения roomID
+          if (roomID.value) {
+              listenForSignaling();
           }
         }
         
-        // Специальная функция для обработки, когда пользователь перешел по ссылке
         function handleJoinFromUrl() {
             if (!username.value.trim()) {
                  alert('Пожалуйста, введите ваше имя.');
@@ -368,24 +362,42 @@
             roomLink.value = `${window.location.origin}?room=${roomFromUrl.value}`;
             state.value = 'incoming';
             roomRef = db.ref(`rooms/${roomID.value}`);
-            listenForSignaling(); // Начинаем слушать эту комнату
+            listenForSignaling();
         }
 
 
         async function acceptCall() {
           try {
-            // 1. Запрашиваем медиа (камера/микрофон)
             await getMedia(); 
-            // 2. Переходим в состояние активного звонка
             state.value = 'call';
-            // 3. Создаем PeerConnection
             createPeerConnection();
-            // 4. Создаем и отправляем Offer (Caller)
-            await createOffer();
-            // 5. Слушаем Ответ (Answer)
+            
+            // 1. Устанавливаем Remote Description (Offer, который мы получили в listenForSignaling)
+            const offerSnapshot = await roomRef.child('offers').limitToFirst(1).get();
+            const offerData = offerSnapshot.val() ? Object.values(offerSnapshot.val())[0] : null;
+            
+            if (!offerData || !offerData.sdp) {
+                alert("Ошибка: Не найден Offer от вызывающей стороны.");
+                return hangup();
+            }
+            
+            remoteUsername.value = offerData.username || 'Собеседник';
+            callerID = offerSnapshot.key || Object.keys(offerSnapshot.val())[0]; // Получаем ключ offer
+            
+            await pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
+            
+            // 2. Создаем и отправляем Answer
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            
+            await roomRef.child('answers').push({
+                sdp: pc.localDescription,
+                username: username.value.trim()
+            });
+
+            // 3. Начинаем слушать ответы/кандидаты (если не слушали ранее)
             listenForAnswer();
-            // 6. Слушаем ICE Candidates от собеседника
-            listenForCandidates();
+            listenForCandidates(); // Необходимо убедиться, что кандидаты будут получены
 
           } catch (e) {
             console.error("Failed to accept call:", e);
@@ -393,42 +405,45 @@
           }
         }
         
-        async function createOffer() {
-            const offer = await pc.createOffer({ offerToReceiveVideo: 1, offerToReceiveAudio: 1 });
-            await pc.setLocalDescription(offer);
-            
-            // Отправляем Offer в комнату
-            await roomRef.child('offers').push({
-                sdp: pc.localDescription,
-                username: username.value.trim()
-            });
-        }
-        
         // --- Логика сигналинга (Database Listeners) ---
         
         function listenForSignaling() {
             if (!roomRef) return;
             
-            // 1. Слушаем, когда создатель комнаты отправляет Offer
+            // Слушаем Offer (Актуально для того, кто ждет, т.е. Receiver)
             roomRef.child('offers').on('child_added', (snapshot) => {
                 const offerData = snapshot.val();
                 
-                if (snapshot.key === callerID) return; // Игнорируем, если это наш собственный offer
-                
-                // Устанавливаем имя удаленного пользователя
-                remoteUsername.value = offerData.username || 'Собеседник';
-                callerID = snapshot.key; // Это ID того, кто создал комнату и отправил offer
-
-                if (state.value === 'incoming') {
-                    // Мы слушаем комнату, и пришел Offer (нас зовут)
-                    pc.setRemoteDescription(new RTCSessionDescription(offerData.sdp));
-                    // Ждем, пока примут звонок, чтобы создать Answer
+                if (state.value === 'incoming' && offerData && offerData.sdp) {
+                    // Если мы в режиме Incoming и пришел Offer, мы его обрабатываем только один раз
+                    remoteUsername.value = offerData.username || 'Собеседник';
+                    callerID = snapshot.key;
+                    // ПРИНЯТИЕ ЗВОНКА будет инициировано кнопкой "Принять"
                 }
             });
             
-            // 2. Слушаем ICE Candidates от удаленной стороны
-            roomRef.child('iceCandidates').on('child_added', (snapshot) => {
-                if (!pc) return;
+            // Слушаем Answer (Актуально для того, кто звонит, т.е. Caller)
+            roomRef.child('answers').on('child_added', async (snapshot) => {
+                if (state.value === 'waiting' && pc && snapshot.val().sdp) {
+                    const answerData = snapshot.val();
+                    // Убеждаемся, что это ответ на наш Offer (ключ совпадает)
+                    if (snapshot.key === callerID) {
+                        await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
+                        // Теперь соединение установлено, переходим в call
+                        state.value = 'call';
+                        listenForCandidates(); // Начинаем слушать ICE
+                    }
+                }
+            });
+            
+            // Слушаем ICE Candidates
+            listenForCandidates();
+        }
+        
+        function listenForCandidates() {
+             if (!roomRef || !pc) return;
+             // Слушаем ICE Candidates от удаленной стороны
+             roomRef.child('iceCandidates').on('child_added', (snapshot) => {
                 const candidateData = snapshot.val();
                 if (candidateData && candidateData.candidate) {
                     try {
@@ -441,63 +456,50 @@
         }
         
         function listenForAnswer() {
+            // Этот слушатель нужен только для Caller, чтобы дождаться Answer
             if (!roomRef) return;
             
-            // Слушаем Ответ (Answer) от того, кто принял звонок
             roomRef.child('answers').on('child_added', async (snapshot) => {
-                if (snapshot.key !== callerID) return; // Ответ должен прийти под тем же ключом, что и Offer
-                
-                const answerData = snapshot.val();
-                
-                if (pc && answerData.sdp) {
-                    await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
+                if (state.value === 'waiting' && pc && snapshot.val().sdp) {
+                    const answerData = snapshot.val();
                     
-                    // После установки Answer, начинаем слушать ICE Candidates от другой стороны
-                    // (В этой версии мы слушаем их в `listenForSignaling`, но здесь можно добавить дополнительную синхронизацию, если нужно)
-                    
-                    // После того как Answer установлен, нужно убедиться, что локальные кандидаты отправлены
-                    // В нашей схеме, мы уже слушаем `iceCandidates`, так что просто переключаем состояние.
-                    state.value = 'call';
+                    // Убеждаемся, что это ответ на наш Offer
+                    if (snapshot.key === callerID) {
+                        await pc.setRemoteDescription(new RTCSessionDescription(answerData.sdp));
+                        state.value = 'call';
+                        listenForCandidates(); // Начинаем слушать ICE
+                    }
                 }
             });
         }
 
 
-        async function handleRemoteHangup(snapshot) {
-            // Этот слушатель нужен, если мы создали комнату ('waiting')
-            if (snapshot.key === 'hangup') {
-                if (state.value === 'waiting') {
-                    alert('Собеседник покинул соединение.');
-                    hangup();
-                }
+        function handleRemoteHangup(snapshot) {
+            if (snapshot.val() === true && state.value === 'call') {
+                alert('Собеседник завершил вызов.');
+                hangup();
             }
         }
         
         function declineCall() { hangup(); }
         
-        async function hangup() {
-          // Остановка всех медиа-потоков
+        function hangup() {
           [localStream, screenStream, remoteStream].forEach(s => {
             if (s) s.getTracks().forEach(t => t.stop());
           });
-          // Закрытие WebRTC соединения
           if (pc) pc.close();
-          // Отключение слушателей Firebase
           if (roomRef) {
-            // Уведомляем удаленную сторону о завершении (если это возможно)
             if (state.value === 'call' || state.value === 'waiting') {
-                roomRef.child('hangup').set(true);
+                roomRef.child('hangup').set(true); // Сообщаем, что вешаем трубку
             }
             roomRef.off();
           }
 
-          // Сброс переменных
           pc = localStream = screenStream = remoteStream = roomRef = null;
           roomID.value = '';
           remoteUsername.value = '';
           isScreenSharing.value = false;
           
-          // Возврат в начальное состояние
           window.history.replaceState({}, document.title, window.location.pathname);
           state.value = 'setup';
         }
@@ -524,12 +526,10 @@
           if (!localStream) return;
           
           if (isScreenSharing.value) {
-            // Выключаем шаринг, возвращаем камеру
             screenStream?.getTracks().forEach(t => t.stop());
             screenStream = null;
             isScreenSharing.value = false;
             
-            // Заменяем трек на трек с камеры
             const cameraTrack = localStream.getVideoTracks()[0];
             const sender = pc?.getSenders().find(s => s.track?.kind === 'video');
             if (sender && cameraTrack) {
@@ -537,7 +537,6 @@
             }
             setVideoSrc('localVideo', localStream);
           } else {
-            // Включаем шаринг экрана
             try {
               screenStream = await navigator.mediaDevices.getDisplayMedia({
                 video: { cursor: 'motion', width: { ideal: 1920 }, frameRate: 30 },
@@ -545,9 +544,9 @@
               });
               isScreenSharing.value = true;
               
-              // Заменяем трек на трек с экрана
               const screenTrack = screenStream.getVideoTracks()[0];
               const sender = pc?.getSenders().find(s => s.track?.kind === 'video');
+              
               if (sender && screenTrack) {
                  sender.replaceTrack(screenTrack);
               } else if (pc) {
@@ -558,9 +557,8 @@
             } catch (e) {
               if (e.name !== 'NotAllowedError') {
                 console.error("Screen share error:", e);
-                alert('Не удалось начать демонстрацию экрана. Возможно, браузер требует явного разрешения.');
+                alert('Не удалось начать демонстрацию экрана.');
               }
-              // Если ошибка, отменяем шаринг
               isScreenSharing.value = false; 
             }
           }
@@ -580,40 +578,18 @@
 
         onMounted(() => {
           if (!window.RTCPeerConnection) {
-            alert('Ваш браузер не поддерживает WebRTC. Пожалуйста, используйте Chrome, Firefox или Edge.');
-            state.value = 'setup'; // Остаемся на setup, но без возможности звонка
+            alert('Ваш браузер не поддерживает WebRTC.');
+            state.value = 'setup';
             return;
           }
           
-          // Если есть комната в URL, но мы не обработали ее в createOrJoinRoom (т.е. просто обновили страницу)
-          if (roomFromUrl.value && !pc) {
-              state.value = 'setup'; // Ждем клика на "Присоединиться"
+          // Если комната уже есть в URL, но мы не начали обработку,
+          // показываем setup, чтобы пользователь нажал кнопку "Присоединиться".
+          if (roomFromUrl.value) {
+              state.value = 'setup';
           } else {
               state.value = 'setup';
           }
-          
-          // Если мы создали комнату и перешли в waiting, начинаем слушать hangup
-          watch(state, (newState) => {
-              if (newState === 'waiting' && roomRef) {
-                  roomRef.child('hangup').on('value', handleRemoteHangup);
-              }
-          }, { immediate: true });
-          
-          // При переходе в состояние 'call', нужно убедиться, что мы добавили всех ICE кандидатов 
-          // с нашей стороны, которые могли быть сгенерированы до установки Offer/Answer.
-          watch(state, (newState) => {
-              if (newState === 'call' && pc) {
-                  // Перезапускаем сбор ICE, чтобы убедиться, что все отправлены
-                  pc.onicecandidate = (event) => {
-                    if (event.candidate && roomRef) {
-                      roomRef.child('iceCandidates').push({ candidate: event.candidate.toJSON() });
-                    }
-                  };
-                  // Если мы Caller, мы уже отправили offer. Если мы Receiver, мы только что установили Answer.
-                  // Теперь главное — синхронизировать ICE кандидаты.
-              }
-          });
-          
         });
 
         return {
@@ -626,11 +602,9 @@
       }
     }).mount('#app');
 
-    // Service Worker (если есть файл sw.js)
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('/sw.js')
-          .then(registration => console.log('SW registered:', registration))
           .catch(err => console.warn('SW registration failed:', err));
       });
     }
