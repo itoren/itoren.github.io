@@ -367,9 +367,9 @@
 
         async function acceptCall() {
           try {
-            // 1. Запрашиваем медиа
+            // 1. Запрашиваем медиа (Если здесь ошибка, state не сменится и не вылетит, а зависнет на Incoming)
             await getMedia(); 
-            state.value = 'call';
+            
             createPeerConnection();
             
             // 2. Получаем Offer
@@ -395,9 +395,9 @@
                 sdp: pc.localDescription,
                 username: username.value.trim()
             });
-
-            // 5. Начинаем слушать ответы/кандидаты
-            listenForAnswer();
+            
+            // 5. Переходим в Call state и начинаем слушать ICE
+            state.value = 'call';
             listenForCandidates(); 
 
           } catch (e) {
@@ -408,20 +408,32 @@
         
         // --- Логика сигналинга (Database Listeners) ---
         
+        async function createOffer() {
+            const offer = await pc.createOffer({ offerToReceiveVideo: 1, offerToReceiveAudio: 1 });
+            await pc.setLocalDescription(offer);
+            
+            // Отправляем Offer в комнату
+            const offerRef = await roomRef.child('offers').push({
+                sdp: pc.localDescription,
+                username: username.value.trim()
+            });
+            callerID = offerRef.key; // Сохраняем свой ключ, чтобы ждать ответ под ним
+        }
+
+
         function listenForSignaling() {
             if (!roomRef) return;
             
-            // Слушаем Offer (для Receiver)
+            // Слушаем Offer (для Receiver, чтобы знать, кто звонит)
             roomRef.child('offers').on('child_added', (snapshot) => {
                 const offerData = snapshot.val();
                 
                 if (state.value === 'incoming' && offerData && offerData.sdp) {
                     remoteUsername.value = offerData.username || 'Собеседник';
-                    callerID = snapshot.key;
                 }
             });
             
-            // Слушаем Answer (для Caller)
+            // Слушаем Answer (для Caller, чтобы завершить установку соединения)
             roomRef.child('answers').on('child_added', async (snapshot) => {
                 if (state.value === 'waiting' && pc && snapshot.val().sdp) {
                     const answerData = snapshot.val();
@@ -452,11 +464,6 @@
             });
         }
         
-        function listenForAnswer() {
-            // Этот слушатель нужен только для Caller, чтобы дождаться Answer
-        }
-
-
         function handleRemoteHangup(snapshot) {
             if (snapshot.val() === true && state.value === 'call') {
                 alert('Собеседник завершил вызов.');
@@ -566,6 +573,18 @@
             return;
           }
           state.value = 'setup';
+          
+          // Специальная обработка для режима 'waiting' (Caller)
+          // Он должен отправить Offer после того, как получит медиа
+          watch(state, (newState) => {
+              if (newState === 'call' && pc && state.value === 'call') {
+                 // Мы перешли в состояние 'call' (только Caller достигает этого после получения Answer)
+                 // Мы уже должны были отправить Offer, но для уверенности...
+                 if (roomRef && state.value === 'waiting') { 
+                     createOffer();
+                 }
+             }
+          });
         });
 
         return {
